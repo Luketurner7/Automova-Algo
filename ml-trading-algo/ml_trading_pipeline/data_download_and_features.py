@@ -1,9 +1,9 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from ta import add_all_ta_features
 from ta.utils import dropna
 from datetime import datetime, timedelta
+import os
 
 # Step 1: Get S&P 500 Tickers
 sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
@@ -19,8 +19,14 @@ data_dict = {}
 
 for ticker in tickers:
     try:
-        df = yf.download(ticker, start=start_date, progress=False)
+        df = yf.download(ticker, start=start_date, progress=False, auto_adjust=True)
+        if df.empty:
+            print(f"Warning: No data for {ticker} after download")
+            continue
         df = dropna(df)
+        if df.empty:
+            print(f"Warning: No data for {ticker} after dropna")
+            continue
         df = add_all_ta_features(
             df, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
@@ -29,13 +35,15 @@ for ticker in tickers:
         df["ticker"] = ticker
         df["date"] = df.index
         data_dict[ticker] = df
+        print(f"Downloaded and processed {ticker} ({len(df)} rows)")
     except Exception as e:
         print(f"Error downloading {ticker}: {e}")
 
-# Combine all into a single DataFrame
-df_all = pd.concat(data_dict.values())
-df_all.reset_index(drop=True, inplace=True)
-
-# Save to CSV
-df_all.to_csv("data/processed_stock_data.csv", index=False)
-print("✅ Data download and feature generation complete. Saved to data/processed_stock_data.csv")
+if data_dict:
+    df_all = pd.concat(data_dict.values())
+    df_all.reset_index(drop=True, inplace=True)
+    os.makedirs("data", exist_ok=True)
+    df_all.to_csv("data/processed_stock_data.csv", index=False)
+    print("✅ Data download and feature generation complete. Saved to data/processed_stock_data.csv")
+else:
+    print("No data downloaded; nothing to save.")
