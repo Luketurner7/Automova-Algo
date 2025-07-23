@@ -1,15 +1,16 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from ta import add_all_ta_features
-from ta.utils import dropna
 from datetime import datetime, timedelta
 import ssl
 
-# Fix SSL issues (on macOS)
+from ta.trend import MACD, SMAIndicator
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
+
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# Step 1: Get S&P 500 tickers
+# Get S&P 500 tickers
 try:
     sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     tickers = pd.read_html(sp500_url)[0]['Symbol'].tolist()
@@ -18,10 +19,8 @@ except Exception as e:
     print(f"❌ Error loading ticker list: {e}")
     tickers = []
 
-# Limit to first 50
 tickers = tickers[:50]
 
-# Step 2: Download data
 start_date = (datetime.today() - timedelta(days=730)).strftime('%Y-%m-%d')
 data_dict = {}
 
@@ -33,13 +32,19 @@ for ticker in tickers:
             print(f"⚠️ Skipping {ticker}: insufficient data")
             continue
 
-        df = dropna(df)
+        df.dropna(inplace=True)
 
-        # Ensure no multi-dimensional columns are created
-        df = add_all_ta_features(
-            df, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
-        )
+        # Technical indicators (force flattening to 1D Series)
+        df['sma_20'] = SMAIndicator(close=df["Close"], window=20).sma_indicator().astype(float)
+        df['rsi'] = RSIIndicator(close=df["Close"], window=14).rsi().astype(float)
+        macd = MACD(close=df["Close"])
+        df['macd'] = macd.macd().astype(float)
+        df['macd_signal'] = macd.macd_signal().astype(float)
+        bb = BollingerBands(close=df["Close"])
+        df['bb_upper'] = bb.bollinger_hband().astype(float)
+        df['bb_lower'] = bb.bollinger_lband().astype(float)
 
+        # Targets
         df["future_return_5d"] = df["Close"].shift(-5) / df["Close"] - 1
         df["target"] = (df["future_return_5d"] > 0).astype(int)
         df["ticker"] = ticker
@@ -52,11 +57,10 @@ for ticker in tickers:
     except Exception as e:
         print(f"❌ Error downloading {ticker}: {e}")
 
-# Step 3: Save
+# Save
 if data_dict:
     df_all = pd.concat(data_dict.values())
     df_all.reset_index(drop=True, inplace=True)
-
     output_path = "data/processed_stock_data.csv"
     df_all.to_csv(output_path, index=False)
     print(f"\n✅ All data saved to {output_path} — {len(df_all)} rows.")
